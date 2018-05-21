@@ -1,23 +1,19 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 
+import 'package:flutter/material.dart';
+import 'package:welcome_wizzard_fl/page_dragger.dart';
+import 'package:welcome_wizzard_fl/page_reveal.dart';
+import 'package:welcome_wizzard_fl/pager_indicator.dart';
+import 'package:welcome_wizzard_fl/pages.dart';
 void main() => runApp(new MyApp());
 
 class MyApp extends StatelessWidget {
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return new MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Material Page Reveal',
       debugShowCheckedModeBanner: false,
       theme: new ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or press Run > Flutter Hot Reload in IntelliJ). Notice that the
-        // counter didn't reset back to zero; the application is not restarted.
         primarySwatch: Colors.blue,
       ),
       home: new MyHomePage(),
@@ -31,58 +27,102 @@ class MyHomePage extends StatefulWidget {
   _MyHomePageState createState() => new _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
+
+  StreamController<SlideUpdate> slideUpdateStream;
+  AnimatedPageDragger animatedPageDragger;
+
+  int activeIndex = 0;
+  int nextPageIndex = 0;
+  SlideDirection slideDirection = SlideDirection.none;
+  double slidePercent = 0.0;
+
+  _MyHomePageState() {
+    slideUpdateStream = new StreamController<SlideUpdate>();
+
+    slideUpdateStream.stream.listen((SlideUpdate event) {
+      setState(() {
+        if (event.updateType == UpdateType.dragging) {
+          print('Sliding ${event.direction} at ${event.slidePercent}');
+          slideDirection = event.direction;
+          slidePercent = event.slidePercent;
+
+          if (slideDirection == SlideDirection.leftToRight) {
+            nextPageIndex = activeIndex - 1;
+          } else if (slideDirection == SlideDirection.rightToLeft) {
+            nextPageIndex = activeIndex + 1;
+          } else {
+            nextPageIndex = activeIndex;
+          }
+        } else if (event.updateType == UpdateType.doneDragging) {
+          print('Done dragging.');
+          if (slidePercent > 0.5) {
+            animatedPageDragger = new AnimatedPageDragger(
+              slideDirection: slideDirection,
+              transitionGoal: TransitionGoal.open,
+              slidePercent: slidePercent,
+              slideUpdateStream: slideUpdateStream,
+              vsync: this,
+            );
+          } else {
+            animatedPageDragger = new AnimatedPageDragger(
+              slideDirection: slideDirection,
+              transitionGoal: TransitionGoal.close,
+              slidePercent: slidePercent,
+              slideUpdateStream: slideUpdateStream,
+              vsync: this,
+            );
+
+            nextPageIndex = activeIndex;
+          }
+
+          animatedPageDragger.run();
+        } else if (event.updateType == UpdateType.animating) {
+          print('Sliding ${event.direction} at ${event.slidePercent}');
+          slideDirection = event.direction;
+          slidePercent = event.slidePercent;
+        } else if (event.updateType == UpdateType.doneAnimating) {
+          print('Done animating. Next page index: $nextPageIndex');
+          activeIndex = nextPageIndex;
+
+          slideDirection = SlideDirection.none;
+          slidePercent = 0.0;
+
+          animatedPageDragger.dispose();
+        }
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return new Scaffold(
       body: new Stack(
-        children: <Widget>[
-          new Container(
-            width: double.infinity,
-            color: Colors.blue,
-            child: new Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                new Padding(
-//                  padding: const EdgeInsets.all(8.0),
-                  padding:  EdgeInsets.only(bottom: 25.0),
-                  child: new Image.asset('assets/hotels.png',
-                    width: 200.0,
-                    height: 200.0,
-                    scale: 2.0,
-                  ),
-                ),
-
-                new Padding(
-                  padding: const EdgeInsets.only(top: 10.0, bottom: 10.0),
-                  child: new Text("Hotels",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontFamily: 'FlamanteRoma',
-                      fontSize: 34.0
-                    ),
-                  ),
-                ),
-                new Padding(
-                  padding: EdgeInsets.only(bottom: 75.0),
-                  child: new Text('This is the body',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18.0
-                    ),
-                  ),
-                )
-              ],
+        children: [
+          new Page(
+            viewModel: pages[activeIndex],
+            percentVisible: 1.0,
+          ),
+          new PageReveal(
+            revealPercent: slidePercent,
+            child: new Page(
+              viewModel: pages[nextPageIndex],
+              percentVisible: slidePercent,
             ),
-          )
+          ),
+          new PagerIndicator(
+            viewModel: new PagerIndicatorViewModel(
+              pages,
+              activeIndex,
+              slideDirection,
+              slidePercent,
+            ),
+          ),
+          new PageDragger(
+            canDragLeftToRight: activeIndex > 0,
+            canDragRightToLeft: activeIndex < pages.length - 1,
+            slideUpdateStream: this.slideUpdateStream,
+          ),
         ],
       ),
     );
